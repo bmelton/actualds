@@ -2,16 +2,22 @@ version: "3"
 
 tasks:
   build:
+    desc: Build the binary into ./actualds
     cmds:
-      - go build -o actualds .
+      - go build -o actualds ./cmd/actualds
+  install:
+    desc: Install actualds onto your PATH
+    cmds:
+      - go install ./cmd/actualds
   run:
+    desc: Show free space on the drives you can actually fill up
     cmds:
-      - go run .
+      - go run ./cmd/actualds
   clean:
     desc: Pick categories to clean (pass -- --dry-run or -- --yes to skip the picker)
     interactive: true
     cmds:
-      - go run . clean {{.CLI_ARGS}}
+      - go run ./cmd/actualds clean {{.CLI_ARGS}}
   test:
     cmds:
       - go test ./...
