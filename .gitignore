@@ -1,0 +1,5 @@
+# Compiled binary from `task build`
+/actualds
+
+# Personal Claude Code permissions, not shared
+.claude/settings.local.json
