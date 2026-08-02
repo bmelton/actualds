@@ -1,27 +1,48 @@
 # actualds
 
-Free space on the drives you can actually run out of.
+A command line tool that reports free space on the drives you can run out of
+space on. It also deletes regenerable cache files to reclaim space.
 
 ## Why
 
-`df -h` on a Mac answers a question nobody asked. It lists every mount the
-kernel knows about, so a real answer about your boot drive arrives buried under
-`devfs`, `map auto_home`, every mounted ISO, every read-only disk image, and the
-handful of APFS system volumes that macOS keeps for its own use.
+Mac drives are small and they fill up. `df -h` reports every mounted
+filesystem, which includes `devfs`, `map auto_home`, mounted ISOs, read-only
+disk images, and several APFS system volumes. That output is hard to read when
+you only want to know how much room is left on your boot drive.
 
-Two macOS details make the raw output worse:
+`actualds` reports the volumes you can fill up. It keeps a mount when the mount
+is writable, is backed by a device under `/dev/`, and is mounted at
+`/System/Volumes/Data` or under `/Volumes`. It drops everything else.
 
-- Modern macOS mounts `/` as a sealed read-only snapshot. The volume you fill
-  up is `/System/Volumes/Data`, which is not the line most people read.
-- `df` reports the Data volume's own blocks as Used. On a shared APFS
-  container that undercounts what is really consuming the disk.
+On current macOS versions, `/` is a sealed read-only snapshot. The volume that
+fills up is `/System/Volumes/Data`. `actualds` labels that volume
+`Macintosh HD`.
 
-`actualds` keeps only the volumes you can fill up: writable, backed by a real
-device, and mounted either at `/System/Volumes/Data` or under `/Volumes`. The
-sealed `/` is read-only, so it drops out with the ISOs. Nothing else is
-printed.
+## Install
 
-## What it does
+```
+task install        # go install ./cmd/actualds
+```
+
+Other tasks:
+
+```
+task build          # build ./actualds in place
+task test           # run the unit tests
+task run            # run the report from source
+task clean          # run the picker from source
+```
+
+## Usage
+
+```
+actualds                    Report free space
+actualds clean              Select categories to delete, then delete them
+actualds clean --dry-run    Print the table and exit
+actualds clean --yes        Delete every category without a prompt
+```
+
+## Report
 
 ```
 $ actualds
@@ -31,18 +52,17 @@ Dock (non-Backups)           2.0 TB   254.3 GB     1.7 TB  87.3%
 Dock                       257.0 GB   246.3 GB    10.7 GB   4.2%
 ```
 
-Free space matches `df` exactly. The Used column deliberately does not: it
-counts everything in the shared APFS container that is not free, including the
-sealed system volume, swap, and snapshots. For "what is eating my disk," that
-is the number you want.
+The FREE column matches `df`. The USED column does not. `df` counts only the
+blocks of the Data volume. `actualds` counts everything in the shared APFS
+container that is not free, which includes the sealed system volume, swap, and
+snapshots.
 
-The whole thing reads mounts through `syscall.Getfsstat`. There are no
+The report reads mounts with `syscall.Getfsstat`. The project has no
 third-party dependencies.
 
-## Reclaiming space
+## Cleaning up space
 
-`actualds clean` finds regenerable data that is safe to delete and opens a
-checklist:
+`actualds clean` measures each category and opens a list:
 
 ```
 Select what to clean:
@@ -61,73 +81,48 @@ Select what to clean:
 8 of 9 selected (38.3 GB)
 ```
 
-Everything starts selected. Arrow keys or `j`/`k` move, space toggles, `a` and
-`n` select all or none, Enter runs only the checked rows, and `q`, Esc, or
-Ctrl-C cancels without deleting anything. The running total updates as you
-toggle, so you can see what a given selection buys you before you commit.
+Every category starts selected. Arrow keys or `j` and `k` move the cursor.
+Space toggles a row. `a` selects all rows and `n` clears all rows. Enter runs
+the selected rows. `q`, Esc, and Ctrl-C exit without deleting anything.
 
-Categories with no installed tool, or with nothing to reclaim, are skipped. The
-Docker rows disappear when the daemon is not running.
+`actualds` skips a category when its tool is not installed or when the category
+has nothing to reclaim. The Docker rows do not appear when the Docker daemon is
+not running.
 
-After a run it reports space actually freed, measured from a `statfs` delta
-rather than from the sum of the estimates.
+After a run, `actualds` reports the space it freed. It measures that number
+from a `statfs` delta, not from the sum of the estimates.
 
-### Design rules
+When stdin is not a terminal, `actualds` skips the list, prints the table, and
+exits without deleting anything.
 
-Two rules keep this honest:
+### How the deletion works
 
-1. **Each tool prunes its own files.** `actualds` calls `docker builder prune`,
-   `go clean -cache`, and `brew cleanup` instead of deleting paths it guessed
-   at. Those tools know which of their files are live. A hand-written `rm -rf`
-   does not, and that is where cleanup scripts cause damage.
-2. **The command shown is the command that runs.** The text in the checklist is
-   the exact argument list passed to `exec`, so the preview cannot drift from
-   the behavior.
+Each category runs the prune command of its own tool. `actualds` does not
+delete paths itself, except for the Xcode `DerivedData` directory. Tools such
+as `docker`, `go`, and `brew` know which of their files are still in use.
 
-### What it will not touch
+The command in the list is the argument list that `actualds` passes to `exec`.
+The preview and the executed command cannot differ.
 
-Deliberate omissions, because the usual advice about them is wrong:
+### What it does not delete
 
-- **All of `~/Library/Caches`.** Real user data hides there. Spotify keeps
-  offline music in it and Chrome keeps profile data. Deleting a cache while its
-  app runs can also corrupt state. Named subdirectories are fine; the parent is
-  not.
-- **APFS local snapshots.** macOS purges these under pressure on its own.
-- **`/private/var/folders`.** System-managed temporary files with live
-  processes holding them open.
-- **`~/Library/Application Support` and MobileSync backups.** That is data, not
-  cache.
+- All of `~/Library/Caches`. Some applications store real data there. Spotify
+  stores offline music and Chrome stores profile data. Deleting a cache while
+  its application runs can also corrupt state. `actualds` deletes named
+  subdirectories instead.
+- APFS local snapshots. macOS deletes these when disk space runs low.
+- `/private/var/folders`. macOS manages this directory and running processes
+  hold files open in it.
+- `~/Library/Application Support` and MobileSync backups. These directories
+  hold data, not cache.
+- The Trash. Empty it from Finder.
 
-The Trash is not included either, because `actualds` reports what it can
-reclaim and the Trash is better emptied from Finder.
+## Docker note
 
-## Usage
-
-```
-actualds                    Show free space
-actualds clean              Pick categories interactively, then run them
-actualds clean --dry-run    Print the table and exit, changing nothing
-actualds clean --yes        Run every category without prompting
-```
-
-When stdin is not a terminal the picker is skipped and the table is printed
-with a pointer to `--yes`, so nothing can be deleted without an explicit
-decision.
-
-## Install
-
-```
-task install        # go install ./cmd/actualds
-task build          # build ./actualds in place
-task test
-task clean          # run the picker from source
-```
-
-## Caveat
-
-Docker Desktop stores its VM in a sparse disk image. Pruning frees space inside
-the VM, but the host file does not always shrink right away, so the reclaimed
-space can take a Docker Desktop restart to appear in `actualds`.
+Docker Desktop stores its virtual machine in a sparse disk image. A prune frees
+space inside the virtual machine, but the image file on the host does not
+always shrink right away. The reclaimed space can require a Docker Desktop
+restart before `actualds` reports it.
 
 ## License
 
