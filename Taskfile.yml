@@ -1,0 +1,17 @@
+version: "3"
+
+tasks:
+  build:
+    cmds:
+      - go build -o actualds .
+  run:
+    cmds:
+      - go run .
+  clean:
+    desc: Pick categories to clean (pass -- --dry-run or -- --yes to skip the picker)
+    interactive: true
+    cmds:
+      - go run . clean {{.CLI_ARGS}}
+  test:
+    cmds:
+      - go test ./...
