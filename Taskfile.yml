@@ -19,5 +19,6 @@ tasks:
     cmds:
       - go run ./cmd/actualds clean {{.CLI_ARGS}}
   test:
+    desc: Run the unit tests
     cmds:
       - go test ./...
